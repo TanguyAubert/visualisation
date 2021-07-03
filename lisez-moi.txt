@@ -1,8 +1,0 @@
-
-Dans Developer Command Prompt for VS 2019 :
-cd c:\Tanguy\Programs\projects\visualisation
-code .
-
-Dans la console Windows :
-cd c:\Tanguy\Programs\projects\visualisation\ts
-tsc --project tsconfig.json

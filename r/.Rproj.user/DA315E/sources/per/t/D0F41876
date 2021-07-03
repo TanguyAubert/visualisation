@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1615759965830.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2037689921",
+    "id" : "D0F41876",
+    "lastKnownWriteTime" : 1615759625,
+    "last_content_update" : 1615759625,
+    "path" : "C:/Tanguy/Programs/projects/visualisation/r/code/visualisation.R",
+    "project_path" : "code/visualisation.R",
+    "properties" : {
+        "cursorPosition" : "289,32",
+        "scrollLine" : "0"
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

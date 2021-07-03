@@ -1,0 +1,210 @@
+
+.chart-container
+{
+	margin-top:30px;
+}
+
+.chart-title
+{
+	font-weight:bold;
+	text-align: center;
+}
+
+.chart-sub-title
+{
+	text-align: center;
+}
+
+.chart-plot-area
+{
+    margin: 0;
+	padding-top:10px;
+}
+
+.chart-footnote
+{
+	font-style:italic;
+}
+
+.chart-x-label
+{
+	text-align:center;
+}
+
+.chart-y-label-1, .chart-y-label-2
+{
+	writing-mode: vertical-rl;
+}
+
+.chart-y-label-1
+{
+	transform: rotate(180deg);
+}
+
+.chart-title, .chart-sub-title, .chart-footnote, .chart-x-label, .chart-y-label-1, .chart-y-label-2
+{
+	font-size:1.2em;
+}
+
+.chart-filters-area
+{
+	margin: auto;
+	text-align:center;
+}
+
+.chart-filter-container
+{
+	display:inline-block;
+	background-color:rgb(250, 250, 250);
+	padding:5px;
+	margin-right:5px;
+	border:solid 1px rgb(240, 240, 240);
+	min-height:30px;
+	line-height:30px;
+	margin-top:10px;
+}
+
+.chart-filter-label
+{
+	padding: 10px;
+}
+
+.chart-filter-select
+{
+	padding:5px;
+	cursor:pointer;
+	border:none;
+}
+
+.chart-filter-input
+{
+	cursor:pointer;
+}
+
+.chart-filter-displayer
+{
+	padding: 10px;
+}
+
+.chart-filter-option-not-available
+{
+	color:rgb(200, 200, 200);
+}
+
+.table
+{
+	margin: auto;
+	border-collapse: collapse;
+	text-align: center;
+	vertical-align:middle;
+	width:100%;
+}
+
+.table thead
+{
+	background-color:rgb(250, 250, 250);
+}
+
+.table td, .table th
+{
+	border: solid 1px rgb(220, 220, 220);
+	padding: 5px;
+}
+
+.chart-warnings-area
+{
+	color: rgb(200, 0, 0);
+	padding-left: 20px;
+	padding-right: 20px;
+	text-align:justify;
+	font-style: italic;
+}
+
+.chart-download-area
+{
+	text-align:right;
+}
+
+.chart-download-button
+{
+	display: inline-block;
+	background-color: DodgerBlue;
+	border: none;
+	color: white;
+	padding: 10px;
+	cursor: pointer;
+}
+
+.chart-download-button:hover
+{
+	background-color: RoyalBlue;
+}
+
+.visualisation-tabs
+{
+	margin-top:20px;
+	border:solid 1px rgb(200, 200, 200);
+	border-radius: 15px 15px 0px 0px;
+}
+
+.visualisation-tabs-titles
+{
+	background-color:rgb(250, 250, 250);
+	border-bottom:solid 1px rgb(200, 200, 200);
+	border-radius: 15px 15px 0px 0px;
+}
+
+.visualisation-tabs-titles table
+{
+	border-collapse: collapse;
+}
+
+.visualisation-tab-title
+{
+	display:inline-block;
+	border-right:solid 1px rgb(200, 200, 200);
+	padding:15px 20px;
+	font-size:1.1em;
+}
+
+.visualisation-tab-title:first-child
+{
+	border-radius: 15px 0px 0px 0px;
+}
+
+.visualisation-tab-title:hover
+{
+	cursor:pointer;
+}
+
+.visualisation-tab-title-selected
+{
+	background-color:rgb(240, 240, 240);
+}
+
+.visualisation-tab-title:hover:not(.visualisation-tab-title-selected)
+{
+	background-color:white;
+}
+
+.visualisation-tabs-contents
+{
+	padding:10px;
+}
+
+.visualisation-tab-content
+{
+
+}
+
+.highcharts-yaxis-labels text, .highcharts-xaxis-labels text, .highcharts-data-label text
+{
+	font-size:1.2em !important;
+	font-family:"Times New Roman" !important;
+	font-weight:normal !important;
+}
+
+.highcharts-container
+{
+	margin:auto;
+}

@@ -1,0 +1,1649 @@
+
+base::library(data.table)
+
+get_externals_path = function(name)
+{
+    return (base::paste0("C:/Tanguy/Programs/externals/", name))
+}
+
+get_js_path = function(name)
+{
+    return (base::paste0("C:/Tanguy/Programs/projects/visualisation/js/code/", name))
+}
+
+get_css_path = function(name)
+{
+    return (base::paste0("C:/Tanguy/Programs/projects/visualisation/css/", name))
+}
+
+get_data_path = function(name)
+{
+    return (base::paste0("C:/Tanguy/Programs/projects/visualisation/data/", name))
+}
+
+read_text_from_file <- function(path)
+{
+    file <- base::file(path, open = "rb")
+    text <- base::readChar(file, base::file.info(path)[["size"]])
+    text <- base::gsub("\\r\\n", "\n", text)
+    base::Encoding(text) <- "UTF-8"
+    base::close(file)
+    
+    return (text)
+}
+
+save_text_to_file <- function(text, path)
+{
+    text <- base::enc2utf8(text)
+    text <- base::paste0(text, collapse = "")
+    file <- base::file(path, open = "w+", encoding = "UTF-8")
+    base::writeLines(text, file)
+    base::close(file)
+}
+
+single_quote <- function(text)
+{
+    text <- base::gsub("'", "\\\\'", text)
+    text <- base::paste0("'", text, "'")
+    
+    return (text);
+}
+
+double_quote <- function(text)
+{
+    text <- base::gsub('"', '\\\\"', text)
+    text <- base::paste0('"', text, '"')
+    
+    return (text);
+}
+
+render_value <- function(value)
+{
+    if (base::is.logical(value))
+    {
+        value <- base::ifelse(value, "true", "false")
+        
+    } else if(base::is.numeric(value))
+    {
+        value <- base::as.character(value)
+        value[value == "Inf"] <- "Infinity"
+        value[value == "-Inf"] <- "-Infinity"
+        
+    } else
+    {
+        value <- single_quote(value)
+    }
+    
+    value[base::is.na(value)] <- "null"
+    
+    return (value)
+}
+
+render_vector <- function(value)
+{
+    value <- render_value(value)
+    value <- stringr::str_c(value, collapse = ", ")
+    value <- stringr::str_c("[", value, "]")
+    
+    return (value)
+}
+
+get_id <- (function()
+{
+    id <- 0
+    
+    return (
+        function(N = 1)
+        {
+            id <<- id + N
+            return ((id - N):(id - 1))
+        }
+    )
+})()
+
+Tag <- methods::setRefClass(
+    
+    Class = "Tag", 
+    
+    fields = c(
+        name         = "character",
+        attributes   = "list",
+        styles       = "list",
+        children     = "list",
+        self_closing = "logical"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function(name)
+        {
+            name <<- name
+            self_closing <<- name %in% c(
+                "area","base","br","col","embed","hr","img","input",
+                "link","meta","param","source","track","wbr","command",
+                "keygen","menuitem"
+            )
+        },
+        
+        add_attribute = function(.self, name, value)
+        {
+            .self$attributes[[name]] <- value
+            base::invisible(.self)
+        },
+        
+        add_style = function(.self, name, value)
+        {
+            .self$styles[[name]] <- value
+            base::invisible(.self)
+        },
+        
+        add_text = function(.self, value)
+        {
+            .self$append(Text(value))
+            base::invisible(.self)
+        },
+        
+        is_self_closing = function(.self, value)
+        {
+            .self$is_self_closing <- value
+            base::invisible(.self)
+        },
+        
+        append = function(.self, ...)
+        {
+            children <- base::list(...)
+            
+            for (child in children)
+            {
+                .self$children[[1 + base::length(.self$children)]] <- child
+            }
+            
+            base::invisible(.self)
+        },
+        
+        render = function()
+        {
+            output <- base::paste0("<", name, render_attributes(), render_styles())
+            
+            if (self_closing)
+            {
+                output <- base::paste0(output, "/>")
+            }
+            else
+            {
+                output <- base::paste0(output, ">", render_children(), "</", name, ">")
+            }
+            
+            return (output)
+        },
+        
+        render_children = function()
+        {
+            output <- ""
+            
+            for (child in children)
+            {
+                output <- base::paste0(output, child$render())
+            }
+            
+            return (output)
+        },
+        
+        render_attributes = function()
+        {
+            output <- ""
+            
+            for (name in base::names(attributes))
+            {
+                output <- base::paste0(output, " ", name, " = ", single_quote(attributes[name]))
+            }
+            
+            return (output)
+        },
+        
+        render_styles = function()
+        {
+            output <- ""
+            
+            if (base::length(styles) > 0)
+            {
+                for (name in base::names(styles))
+                {
+                    output <- base::paste0(output, " ", name, ":", styles[name], ";")
+                }
+                
+                output <- base::paste0(" style = \"", output, "\"")
+            }
+            
+            return (output)
+        }
+    )
+)
+
+Text <- methods::setRefClass(
+    
+    Class = "Text", 
+    
+    fields = c(value = "character"),
+    
+    methods = base::list(
+        
+        initialize = function(.self, value)
+        {
+            .self$value = value
+        },
+        
+        render = function(.self)
+        {
+            return (.self$value)
+        }
+    )
+)
+
+Document <- methods::setRefClass(
+    
+    Class = "Document",
+    
+    fields = c(
+        .head = "ANY",
+        .body = "ANY"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            .head <<- Tag("head")
+            .body <<- Tag("body")
+            
+            .head$append(
+                
+                Tag("title"),
+                
+                Tag("meta")$
+                    add_attribute("http-equiv", "Content-Type")$
+                    add_attribute("content", "text/html; charset=utf-8"),
+                
+                Tag("meta")$
+                    add_attribute("http-equiv", "X-UA-Compatible")$
+                    add_attribute("content", "IE=edge"),
+                
+                Tag("meta")$
+                    add_attribute("name", "viewport")$
+                    add_attribute("content", "width=device-width, initial-scale=1"),
+                
+                Tag("link")$
+                    add_attribute("rel", "stylesheet")$
+                    add_attribute("href", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"),
+                
+                Tag("script")$
+                add_attribute("id", "MathJax-script")$
+                add_attribute("src", "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js")$
+                add_attribute("async", "async")
+            )
+            
+            script(get_externals_path("jquery-3.1.1.min.js"))
+            script(get_externals_path("proj4.js"))
+            script(get_externals_path("highcharts.js"))
+            script(get_externals_path("highcharts-more.js"))
+            script(get_externals_path("map.js"))
+            script(get_externals_path("d3.v4.min.js"))
+            script(get_externals_path("world-highres.js"))
+            script(get_externals_path("europe.js"))
+            script(get_externals_path("fr-all-all.js"))
+            script(get_externals_path("fr-all-all-mainland.js"))
+            script(get_externals_path("fr-all.js"))
+            script(get_externals_path("fr-all-mainland.js"))
+            
+            script(get_js_path("code-decorator.js"))
+            
+            script(get_js_path("utils.js"))
+            script(get_js_path("color.js"))
+            script(get_js_path("data.js"))
+            script(get_js_path("checker.js"))
+            script(get_js_path("graphic.js"))
+            script(get_js_path("chart.js"))
+            script(get_js_path("filter.js"))
+            script(get_js_path("selector.js"))
+            script(get_js_path("cursor.js"))
+            script(get_js_path("structure.js"))
+            script(get_js_path("combo-chart.js"))
+            script(get_js_path("map-chart.js"))
+            script(get_js_path("pie-chart.js"))
+            script(get_js_path("bubble-chart.js"))
+            script(get_js_path("table.js"))
+            script(get_js_path("tabs.js"))
+            script(get_js_path("highcharts-combo-chart.js"))
+            script(get_js_path("highcharts-map-chart.js"))
+            script(get_js_path("highcharts-pie-chart.js"))
+            script(get_js_path("highcharts-bubble-chart.js"))
+        },
+        
+        head = function(.self, ...)
+        {
+            .self$.head$append(...)
+            return (.self)
+        },
+        
+        body = function(.self, ...)
+        {
+            .self$.body$append(...)
+            return (.self)
+        },
+        
+        css = function(.self, path)
+        {
+            .self$.head$append(Tag("style")$add_text(read_text_from_file(path)))
+            return (.self)
+        },
+        
+        script = function(.self, path)
+        {
+            .self$.head$append(Tag("script")$add_text(read_text_from_file(path)))
+            return (.self)
+        },
+        
+        render = function(.self)
+        {
+            output <- base::paste0(
+                
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">",
+                
+                Tag("html")$
+                    add_attribute("xmlns", "http://www.w3.org/1999/xhtml")$
+                    add_attribute("xml:lang", "fr")$
+                    append(.self$.head, .self$.body)$
+                    render()
+            )
+            
+            return (output)
+        }
+    )
+)
+
+Data <- methods::setRefClass(
+    
+    Class = "Data",
+    
+    fields = c(
+        name    = "character",
+        data    = "data.table"
+    ),
+    
+    methods = base::list(
+        
+        set_name = function(.self, value)
+        {
+            .self$name <- value
+            base::invisible(.self)
+        },
+        
+        set_data = function(.self, value)
+        {
+            .self$data <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            columns <- base::list()
+            
+            for (variable in base::colnames(.self$data))
+            {
+                columns[[variable]] <- base::paste0("\"", variable, "\": ", render_vector(.self$data[[variable]]))
+            }
+            
+            columns <- base::paste0(columns, collapse = ",\n")
+            
+            output <- base::paste0("\nlet ", .self$name, " = {", columns, "};\n")
+            
+            output <- Tag("script")$
+                add_text(output)$
+                render()
+            
+            return (output)
+        }
+    )
+)
+
+Code <- methods::setRefClass(
+    
+    Class = "Code",
+    
+    fields = c(
+        id       = "character",
+        text     = "character",
+        language = "character"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            id <<- base::as.character(get_id())
+        },
+        
+        set_text = function(.self, value)
+        {
+            .self$text <- value
+            base::invisible(.self)
+        },
+        
+        set_language = function(.self, value)
+        {
+            .self$language <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            hidden_id <- base::paste0("code-hidden-", .self$id)
+            visible_id <- base::paste0("code-visible-", .self$id)
+            
+            code <- base::paste0(
+                "document.getElementById(",
+                single_quote(visible_id),
+                ").appendChild(",
+                "Decorator_Factory.To_Table(",
+                "document.getElementById(",
+                single_quote(hidden_id),
+                ").innerHTML, ",
+                single_quote(.self$language),
+                "));"
+            ) 
+            
+            hidden <- Tag("div")$
+                add_attribute("id", hidden_id)$
+                add_style("display", "none")$
+                add_text(.self$text)$
+                render()
+            
+            visible <- Tag("div")$
+                add_style("margin-top", "10px")$
+                add_attribute("id", visible_id)$
+                render()
+            
+            script <- Tag("script")$
+                add_text(code)$
+                render()
+            
+            return (base::paste0(hidden, "\n", visible, "\n", script))
+        }
+    )
+)
+
+Graphic <- methods::setRefClass(
+    
+    Class = "Graphic", 
+    
+    fields = c(
+        id                 = "character",
+        data_name          = "character",
+        data               = "Data",
+        title              = "character",
+        sub_title          = "character",
+        library            = "character",
+        footnote           = "character",
+        x_label            = "character",
+        y_label_1          = "character",
+        y_label_2          = "character",
+        filters            = "list",
+        checker_disabled   = "logical",
+        download_enabled   = "logical",
+        download_separator = "character",
+        download_line_feed = "character"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            id <<- base::as.character(get_id())
+            checker_disabled <<- FALSE
+        },
+        
+        set_data_name = function(.self, value)
+        {
+            .self$data_name <- value
+            base::invisible(.self)
+        },
+        
+        set_data = function(.self, value)
+        {
+            if ("data.frame" %in% base::class(value))
+            {
+                value <- data.table::as.data.table(value)
+                
+                return (.self$set_data(Data()$set_data(value)))
+            }
+            
+            .self$data <- value
+            
+            if (base::length(.self$data_name) == 0)
+            {
+                .self$data_name <- base::paste0("data_", .self$id)
+            }
+            
+            base::invisible(.self)
+        },
+        
+        set_title = function(.self, value)
+        {
+            .self$title <- value
+            base::invisible(.self)
+        },
+        
+        set_sub_title = function(.self, value)
+        {
+            .self$sub_title <- value
+            base::invisible(.self)
+        },
+        
+        set_x_label = function(.self, value)
+        {
+            .self$x_label <- value
+            base::invisible(.self)
+        },
+        
+        set_y_label_1 = function(.self, value)
+        {
+            .self$y_label_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_label_2 = function(.self, value)
+        {
+            .self$y_label_2 <- value
+            base::invisible(.self)
+        },
+        
+        set_library = function(.self, value)
+        {
+            .self$library <- value
+            base::invisible(.self)
+        },
+        
+        set_footnote = function(.self, value)
+        {
+            .self$footnote <- value
+            base::invisible(.self)
+        },
+        
+        set_download_enabled = function(.self, value)
+        {
+            .self$download_enabled <- value
+            base::invisible(.self)
+        },
+        
+        set_download_separator = function(.self, value)
+        {
+            .self$download_separator <- value
+            base::invisible(.self)
+        },
+        
+        set_download_line_feed = function(.self, value)
+        {
+            .self$download_line_feed <- value
+            base::invisible(.self)
+        },
+        
+        add_filter = function(.self, variable, label, type, default_value = NULL)
+        {
+            .self$filters[[1 + base::length(.self$filters)]] <- base::list(
+                variable = variable, 
+                label = label, 
+                type = type,
+                default_value = default_value
+            )
+            base::invisible(.self)
+        },
+        
+        disable_checker = function(.self)
+        {
+            .self$checker_disabled <- TRUE
+            base::invisible(.self)
+        },
+        
+        render_graphic = function(.self, code)
+        {
+            return (base::paste(
+                "\n", .self$render_container(), 
+                "\n", .self$render_data(), 
+                "\n", .self$render_code(code), 
+                "\n"
+            ))
+        },
+        
+        render_container = function(.self)
+        {
+            chart_id <- base::paste0("chart-", .self$id)
+            
+            return (Tag("div")$add_attribute("id", chart_id)$render())
+        },
+        
+        render_data = function(.self)
+        {
+            if (!base::is.null(.self$data))
+            {
+                return (.self$data$set_name(.self$data_name)$render())
+            }
+            
+            return ("")
+        },
+        
+        render_code = function(.self, code)
+        {
+            return (Tag("script")$add_text(code)$render())
+        },
+        
+        render_initialization = function(.self, chart_type)
+        {
+            chart_id <- single_quote(base::paste0("chart-", .self$id))
+            
+            return (base::paste0("\ncharts[", chart_id, "] = new ", chart_type, "(", .self$data_name, ")"))
+        },
+        
+        render_graphic_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("title", .self$title),
+                .self$render_option("sub_title", .self$sub_title),
+                .self$render_option("x_label", .self$x_label),
+                .self$render_option("y_label_1", .self$y_label_1),
+                .self$render_option("y_label_2", .self$y_label_2),
+                .self$render_option("footnote", .self$footnote),
+                .self$render_option("download_enabled", .self$download_enabled),
+                .self$render_option("download_separator", .self$download_separator),
+                .self$render_option("download_line_feed", .self$download_line_feed)
+            )
+            
+            if (.self$checker_disabled)
+            {
+                code <- base::paste0("\n.disable_checker()", code)
+            }
+            
+            return (code)
+        },
+        
+        render_option = function(.self, name, value)
+        {
+            code <- ""
+            
+            if (base::length(value) > 0)
+            {
+                code <- base::paste0("\n.set_", name, "(", render_value(value), ")")
+            }
+            
+            return (code)
+        },
+        
+        render_vector_of_options = function(.self, name, value)
+        {
+            code <- ""
+            
+            if (base::length(value) > 0)
+            {
+                code <- base::paste0("\n.set_", name, "(", render_vector(value), ")")
+            }
+            
+            return (code)
+        },
+        
+        render_filters = function(.self)
+        {
+            code <- ""
+            
+            for (filter in .self$filters)
+            {
+                code <- base::paste0(
+                    code, 
+                    "\n.add_filter(", 
+                    single_quote(filter$variable), ", ", 
+                    single_quote(filter$label), ", ", 
+                    single_quote(filter$type), ", ",
+                    base::ifelse(base::is.null(filter$default_value), "null", single_quote(filter$default_value)),
+                    ")"
+                )
+            }
+            
+            return (code)
+        },
+        
+        render_draw_request = function(.self)
+        {
+            chart_id <- single_quote(base::paste0("chart-", .self$id))
+            
+            return (base::paste0("\ncharts[", chart_id, "].draw(", chart_id, ");\n"))
+        }
+    )
+)
+
+Chart <- methods::setRefClass(
+    
+    Class = "Chart", 
+    
+    contains = "Graphic",
+    
+    fields = c(
+        minimum_width      = "numeric",
+        maximum_width      = "numeric",
+        minimum_height     = "numeric",
+        maximum_height     = "numeric",
+        height_width_ratio = "numeric",
+        digits             = "numeric"
+    ),
+    
+    methods = base::list(
+        
+        set_minimum_width = function(.self, value)
+        {
+            .self$minimum_width <- value
+            base::invisible(.self)
+        },
+        
+        set_maximum_width = function(.self, value)
+        {
+            .self$maximum_width <- value
+            base::invisible(.self)
+        },
+        
+        set_minimum_height = function(.self, value)
+        {
+            .self$minimum_height <- value
+            base::invisible(.self)
+        },
+        
+        set_maximum_height = function(.self, value)
+        {
+            .self$maximum_height <- value
+            base::invisible(.self)
+        },
+        
+        set_height_width_ratio = function(.self, value)
+        {
+            .self$height_width_ratio <- value
+            base::invisible(.self)
+        },
+        
+        set_digits = function(.self, value)
+        {
+            .self$digits <- value
+            base::invisible(.self)
+        },
+        
+        render_chart_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("minimum_width", .self$minimum_width),
+                .self$render_option("maximum_width", .self$maximum_width),
+                .self$render_option("minimum_height", .self$minimum_height),
+                .self$render_option("maximum_height", .self$maximum_height),
+                .self$render_option("height_width_ratio", .self$height_width_ratio),
+                .self$render_option("digits", .self$digits)
+            )
+            
+            return (code)
+        }
+    )
+)
+
+Combo_Chart <- methods::setRefClass(
+    
+    Class = "Combo_Chart", 
+    
+    contains = "Chart",
+    
+    fields = c(
+        legend_position = "character",
+        x_variable      = "character",
+        y_variable      = "character",
+        by_variable     = "character",
+        type_variable   = "character",
+        color_variable  = "character",
+        y_axis_variable = "character",
+        stacking_type   = "character",
+        line_width      = "numeric",
+        marker_radius   = "numeric",
+        x_order         = "character",
+        by_order        = "character",
+        y_min_value_1   = "numeric",
+        y_max_value_1   = "numeric",
+        y_min_value_2   = "numeric",
+        y_max_value_2   = "numeric"
+    ), 
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            callSuper()
+        },
+        
+        set_legend_position = function(.self, value)
+        {
+            .self$legend_position <- value
+            base::invisible(.self)
+        },
+        
+        set_x_variable = function(.self, value)
+        {
+            .self$x_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_y_variable = function(.self, value)
+        {
+            .self$y_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_by_variable = function(.self, value)
+        {
+            .self$by_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_type_variable = function(.self, value)
+        {
+            .self$type_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_color_variable = function(.self, value)
+        {
+            .self$color_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_y_axis_variable = function(.self, value)
+        {
+            .self$y_axis_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_stacking_type = function(.self, value)
+        {
+            .self$stacking_type <- value
+            base::invisible(.self)
+        },
+        
+        set_line_width = function(.self, value)
+        {
+            .self$line_width <- value
+            base::invisible(.self)
+        },
+        
+        set_marker_radius = function(.self, value)
+        {
+            .self$marker_radius <- value
+            base::invisible(.self)
+        },
+        
+        set_x_order = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$x_order <- value
+            base::invisible(.self)
+        },
+        
+        set_by_order = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$by_order <- value
+            base::invisible(.self)
+        },
+        
+        set_y_min_value_1 = function(.self, value)
+        {
+            .self$y_min_value_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_max_value_1 = function(.self, value)
+        {
+            .self$y_max_value_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_min_value_2 = function(.self, value)
+        {
+            .self$y_min_value_2 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_max_value_2 = function(.self, value)
+        {
+            .self$y_max_value_2 <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_initialization("Combo_Chart"),
+                .self$render_graphic_options(),
+                .self$render_chart_options(),
+                .self$render_combo_chart_options(),
+                .self$render_filters(),
+                ";",
+                .self$render_draw_request()
+            )
+            
+            return (.self$render_graphic(code))
+        },
+        
+        render_combo_chart_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("legend_position", .self$legend_position),
+                .self$render_option("x_variable", .self$x_variable),
+                .self$render_option("y_variable", .self$y_variable),
+                .self$render_option("by_variable", .self$by_variable),
+                .self$render_option("type_variable", .self$type_variable),
+                .self$render_option("color_variable", .self$color_variable),
+                .self$render_option("y_axis_variable", .self$y_axis_variable),
+                .self$render_option("stacking_type", .self$stacking_type),
+                .self$render_option("line_width", .self$line_width),
+                .self$render_option("marker_radius", .self$marker_radius),
+                .self$render_vector_of_options("x_order", .self$x_order),
+                .self$render_vector_of_options("by_order", .self$by_order),
+                .self$render_option("y_min_value_1", .self$y_min_value_1),
+                .self$render_option("y_max_value_1", .self$y_max_value_1),
+                .self$render_option("y_min_value_2", .self$y_min_value_2),
+                .self$render_option("y_max_value_2", .self$y_max_value_2)
+            )
+            
+            return (code)
+        }
+    )
+)
+
+Map_Chart <- methods::setRefClass(
+    
+    Class = "Map_Chart", 
+    
+    contains = "Chart",
+    
+    fields = c(
+        map_area          = "character",
+        location_variable = "character",
+        value_variable    = "character",
+        min_color         = "character",
+        middle_color      = "character",
+        max_color         = "character",
+        middle_value      = "numeric",
+        water_color       = "character",
+        null_color        = "character",
+        visible_names     = "logical"
+    ), 
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            callSuper()
+        },
+        
+        set_map_area = function(.self, value)
+        {
+            .self$map_area <- value
+            base::invisible(.self)
+        },
+        
+        set_location_variable = function(.self, value)
+        {
+            .self$location_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_value_variable = function(.self, value)
+        {
+            .self$value_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_min_color = function(.self, value)
+        {
+            .self$min_color <- value
+            base::invisible(.self)
+        },
+        
+        set_middle_color = function(.self, value)
+        {
+            .self$middle_color <- value
+            base::invisible(.self)
+        },
+        
+        set_max_color = function(.self, value)
+        {
+            .self$max_color <- value
+            base::invisible(.self)
+        },
+        
+        set_middle_value = function(.self, value)
+        {
+            .self$middle_value <- value
+            base::invisible(.self)
+        },
+        
+        set_water_color = function(.self, value)
+        {
+            .self$water_color <- value
+            base::invisible(.self)
+        },
+        
+        set_null_color = function(.self, value)
+        {
+            .self$null_color <- value
+            base::invisible(.self)
+        },
+        
+        set_visible_names = function(.self, value)
+        {
+            .self$visible_names <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_initialization("Map_Chart"),
+                .self$render_graphic_options(),
+                .self$render_chart_options(),
+                .self$render_map_chart_options(),
+                .self$render_filters(),
+                ";",
+                .self$render_draw_request()
+            )
+            
+            return (.self$render_graphic(code))
+        },
+        
+        render_map_chart_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("map_area", .self$map_area),
+                .self$render_option("location_variable", .self$location_variable),
+                .self$render_option("value_variable", .self$value_variable),
+                .self$render_option("min_color", .self$min_color),
+                .self$render_option("middle_color", .self$middle_color),
+                .self$render_option("max_color", .self$max_color),
+                .self$render_option("middle_value", .self$middle_value),
+                .self$render_option("water_color", .self$water_color),
+                .self$render_option("null_color", .self$null_color),
+                .self$render_option("visible_names", .self$visible_names)
+            )
+            
+            return (code)
+        }
+    )
+)
+
+Pie_Chart <- methods::setRefClass(
+    
+    Class = "Pie_Chart", 
+    
+    contains = "Chart",
+    
+    fields = c(
+        y_variable      = "character",
+        by_variable     = "character",
+        color_variable  = "character",
+        by_order        = "character"
+    ), 
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            callSuper()
+        },
+        
+        set_y_variable = function(.self, value)
+        {
+            .self$y_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_by_variable = function(.self, value)
+        {
+            .self$by_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_color_variable = function(.self, value)
+        {
+            .self$color_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_by_order = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$by_order <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_initialization("Pie_Chart"),
+                .self$render_graphic_options(),
+                .self$render_chart_options(),
+                .self$render_pie_chart_options(),
+                .self$render_filters(),
+                ";",
+                .self$render_draw_request()
+            )
+            
+            return (.self$render_graphic(code))
+        },
+        
+        render_pie_chart_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("y_variable", .self$y_variable),
+                .self$render_option("by_variable", .self$by_variable),
+                .self$render_option("color_variable", .self$color_variable),
+                .self$render_vector_of_options("by_order", .self$by_order)
+            )
+            
+            return (code)
+        }
+    )
+)
+
+Bubble_Chart <- methods::setRefClass(
+    
+    Class = "Bubble_Chart", 
+    
+    contains = "Chart",
+    
+    fields = c(
+        legend_position = "character",
+        x_variable      = "character",
+        y_variable      = "character",
+        z_variable      = "character",
+        by_variable     = "character",
+        type_variable   = "character",
+        color_variable  = "character",
+        y_axis_variable = "character",
+        by_order        = "character",
+        x_min_value   = "numeric",
+        x_max_value   = "numeric",
+        y_min_value_1   = "numeric",
+        y_max_value_1   = "numeric",
+        y_min_value_2   = "numeric",
+        y_max_value_2   = "numeric",
+        x_axis_value    = "numeric",
+        y_axis_value_1  = "numeric",
+        y_axis_value_2  = "numeric",
+        labels_variable = "character"
+    ), 
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            callSuper()
+        },
+        
+        set_legend_position = function(.self, value)
+        {
+            .self$legend_position <- value
+            base::invisible(.self)
+        },
+        
+        set_x_variable = function(.self, value)
+        {
+            .self$x_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_y_variable = function(.self, value)
+        {
+            .self$y_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_z_variable = function(.self, value)
+        {
+            .self$z_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_by_variable = function(.self, value)
+        {
+            .self$by_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_type_variable = function(.self, value)
+        {
+            .self$type_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_color_variable = function(.self, value)
+        {
+            .self$color_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_y_axis_variable = function(.self, value)
+        {
+            .self$y_axis_variable <- value
+            base::invisible(.self)
+        },
+        
+        set_by_order = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$by_order <- value
+            base::invisible(.self)
+        },
+        
+        set_x_min_value = function(.self, value)
+        {
+            .self$x_min_value <- value
+            base::invisible(.self)
+        },
+        
+        set_x_max_value = function(.self, value)
+        {
+            .self$x_max_value <- value
+            base::invisible(.self)
+        },
+        
+        set_y_min_value_1 = function(.self, value)
+        {
+            .self$y_min_value_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_max_value_1 = function(.self, value)
+        {
+            .self$y_max_value_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_min_value_2 = function(.self, value)
+        {
+            .self$y_min_value_2 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_max_value_2 = function(.self, value)
+        {
+            .self$y_max_value_2 <- value
+            base::invisible(.self)
+        },
+        
+        set_x_axis_value = function(.self, value)
+        {
+            .self$x_axis_value <- value
+            base::invisible(.self)
+        },
+        
+        set_y_axis_value_1 = function(.self, value)
+        {
+            .self$y_axis_value_1 <- value
+            base::invisible(.self)
+        },
+        
+        set_y_axis_value_2 = function(.self, value)
+        {
+            .self$y_axis_value_2 <- value
+            base::invisible(.self)
+        },
+
+        set_labels_variable = function(.self, value)
+        {
+            .self$labels_variable <- value
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_initialization("Bubble_Chart"),
+                .self$render_graphic_options(),
+                .self$render_chart_options(),
+                .self$render_bubble_chart_options(),
+                .self$render_filters(),
+                ";",
+                .self$render_draw_request()
+            )
+            
+            return (.self$render_graphic(code))
+        },
+        
+        render_bubble_chart_options = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_option("legend_position", .self$legend_position),
+                .self$render_option("x_variable", .self$x_variable),
+                .self$render_option("y_variable", .self$y_variable),
+                .self$render_option("z_variable", .self$z_variable),
+                .self$render_option("by_variable", .self$by_variable),
+                .self$render_option("type_variable", .self$type_variable),
+                .self$render_option("color_variable", .self$color_variable),
+                .self$render_option("y_axis_variable", .self$y_axis_variable),
+                .self$render_vector_of_options("by_order", .self$by_order),
+                .self$render_option("x_min_value", .self$x_min_value),
+                .self$render_option("x_max_value", .self$x_max_value),
+                .self$render_option("y_min_value_1", .self$y_min_value_1),
+                .self$render_option("y_max_value_1", .self$y_max_value_1),
+                .self$render_option("y_min_value_2", .self$y_min_value_2),
+                .self$render_option("y_max_value_2", .self$y_max_value_2),
+                .self$render_option("x_axis_value", .self$x_axis_value),
+                .self$render_option("y_axis_value_1", .self$y_axis_value_1),
+                .self$render_option("y_axis_value_2", .self$y_axis_value_2),
+                .self$render_option("labels_variable", .self$labels_variable)
+            )
+            
+            return (code)
+        }
+    )
+)
+
+Table <- methods::setRefClass(
+    
+    Class = "Table", 
+    
+    contains = "Graphic",
+    
+    fields = c(
+        columns_order = "character",
+        headers = "list",
+        uniform_colors = "list",
+        gradient_colors = "list",
+        variable_colors = "list"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            callSuper()
+        },
+        
+        set_columns_order = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$columns_order <- value
+            base::invisible(.self)
+        },
+        
+        add_header = function(.self, ...)
+        {
+            value <- base::list(...)
+            value <- base::unlist(value)
+            .self$headers[[1 + base::length(.self$headers)]] <- value
+            base::invisible(.self)
+        },
+        
+        set_color_uniform = function(.self, variable, color)
+        {
+            .self$uniform_colors[[1 + base::length(.self$uniform_colors)]] <- base::list(variable = variable, color = color)
+            base::invisible(.self)
+        },
+        
+        set_color_gradient = function(.self, variable, min_color, middle_color, max_color, middle_value)
+        {
+            .self$gradient_colors[[1 + base::length(.self$gradient_colors)]] <- base::list(
+                variable = variable, 
+                min_color = min_color, 
+                middle_color = middle_color, 
+                max_color = max_color,
+                middle_value = middle_value
+            )
+            base::invisible(.self)
+        },
+        
+        set_color_variable = function(.self, variable, color_variable)
+        {
+            .self$variable_colors[[1 + base::length(.self$variable_colors)]] <- base::list(variable = variable, color_variable = color_variable)
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            code <- base::paste0(
+                .self$render_initialization("Table"),
+                .self$render_graphic_options(),
+                .self$render_vector_of_options("columns_order", .self$columns_order),
+                .self$render_headers(),
+                .self$render_colors(),
+                .self$render_filters(),
+                ";",
+                .self$render_draw_request()
+            )
+            
+            return (.self$render_graphic(code))
+        },
+        
+        render_headers = function(.self)
+        {
+            output <- ""
+            
+            for (header in .self$headers)
+            {
+                output <- base::paste0(output, "\n.add_header(", render_vector(header), ")")
+            }
+            
+            return (output)
+        },
+        
+        render_colors = function(.self)
+        {
+            output <- ""
+            
+            for (color in .self$uniform_colors)
+            {
+                output <- base::paste0(
+                    output, 
+                    "\n.set_color_uniform(", 
+                    single_quote(color$variable), 
+                    ", ", single_quote(color$color), 
+                    ")")
+            }
+            
+            for (color in .self$gradient_colors)
+            {
+                output <- base::paste0(
+                    output, 
+                    "\n.set_color_gradient(", 
+                    single_quote(color$variable), 
+                    ", ", single_quote(color$min_color),
+                    ", ", single_quote(color$middle_color),
+                    ", ", single_quote(color$max_color),
+                    ", ", color$middle_value,
+                    ")"
+                )
+            }
+            
+            for (color in .self$variable_colors)
+            {
+                output <- base::paste0(
+                    output, 
+                    "\n.set_color_variable(", 
+                    single_quote(color$variable), 
+                    ", ", single_quote(color$color_variable), 
+                    ")")
+            }
+            
+            return (output)
+        }
+    )
+)
+
+inline_formula <- function(...)
+{
+    return (stringr::str_c("\\(", sanitize_formula(...), "\\)"))
+}
+
+block_formula <- function(...)
+{
+    return (stringr::str_c("\\[", sanitize_formula(...), "\\]"))
+}
+
+sanitize_formula <- function(...)
+{
+    Text <- base::list(...)
+    Text <- stringr::str_c(Text, collapse = "")
+    Text <- stringr::str_replace_all(Text, "\\s", "\\\\text{ }")
+    Text <- stringr::str_replace_all(Text, "%", "\\\\%")
+    Text <- stringr::str_replace_all(Text, "\\(", "\\\\left(")
+    Text <- stringr::str_replace_all(Text, "\\)", "\\\\right)")
+    Text <- stringr::str_replace_all(Text, "\\[", "\\\\left[")
+    Text <- stringr::str_replace_all(Text, "\\]", "\\\\right]")
+    
+    return (Text)
+}
+
+Tabs <- methods::setRefClass(
+    
+    Class = "Tabs",
+    
+    fields = c(
+        id       = "character",
+        tabs     = "list",
+        counter  = "numeric"
+    ),
+    
+    methods = base::list(
+        
+        initialize = function()
+        {
+            id <<- base::as.character(get_id())
+            counter <<- 0
+        },
+        
+        get_title_id = function(.self, tab)
+        {
+            return (base::paste0("tabs-", .self$id, "-title-", tab[["id"]]))
+        },
+        
+        get_content_id = function(.self, tab)
+        {
+            return (base::paste0("tabs-", .self$id, "-content-", tab[["id"]]))
+        },
+        
+        add_tab = function(.self, title, ...)
+        {
+            .self$counter <- .self$counter + 1
+            
+            .self$tabs[[1 + base::length(.self$tabs)]] <- base::list(
+                id = base::as.character(.self$counter),
+                title = title,
+                content = Tag("div")$append(...)
+            )
+			
+            base::invisible(.self)
+        },
+        
+        render = function(.self)
+        {
+            return (
+                Tag("div")$
+                    add_attribute("class", "visualisation-tabs")$
+                    add_text(.self$render_titles())$
+                    add_text(.self$render_contents())$
+                    add_text(.self$render_script())$
+                    render()
+            )
+        },
+        
+        render_titles = function(.self)
+        {
+            output <- "\n"
+            
+            for (tab in .self$tabs)
+            {
+                output <- base::paste0(
+                    output,
+                    Tag("span")$
+                        add_text(tab$title)$
+                        add_attribute("id", .self$get_title_id(tab))$
+                        add_attribute("class", "visualisation-tab-title")$
+                        render(),
+                    "\n"
+                )
+            }
+            
+            output <- Tag("tr")$add_text(output)$render();
+            output <- Tag("table")$add_text(output)$render();
+            
+            return (
+                base::paste0(
+                    Tag("div")$
+                        add_attribute("class", "visualisation-tabs-titles")$
+                        add_text(output)$
+                        render(),
+                    "\n"
+                )
+            )
+        },
+        
+        render_contents = function(.self)
+        {
+            output <- "\n"
+            
+            for (tab in .self$tabs)
+            {
+                output <- base::paste0(
+                    output,
+                    tab$content$
+                        add_attribute("id", .self$get_content_id(tab))$
+                        add_attribute("class", "visualisation-tab-content")$
+                        render(),
+                    "\n"
+                )
+            }
+            
+            return (
+                base::paste0(
+                    Tag("div")$
+                        add_attribute("class", "visualisation-tabs-contents")$
+                        add_text(output)$
+                        render(),
+                    "\n"
+                )
+            )
+        },
+        
+        render_script = function(.self)
+        {
+            output <- "\nnew Tabs()"
+            
+            for (tab in .self$tabs)
+            {
+                output <- base::paste0(
+                    output,
+                    "\n.add_tab(",
+                    single_quote(.self$get_title_id(tab)),
+                    ", ",
+                    single_quote(.self$get_content_id(tab)),
+                    ")"
+                )
+            }
+            
+            output <- base::paste0(output, "\n.draw()\n;\n")
+            
+            return (
+                base::paste0(
+                    Tag("script")$
+                        add_text(output)$
+                        render(),
+                    "\n"
+                )
+            )
+        }
+    )
+)
